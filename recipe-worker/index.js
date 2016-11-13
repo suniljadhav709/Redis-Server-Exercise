@@ -1,6 +1,8 @@
 const recipeData = require("../recipe-data");
 const fetch = require('node-fetch');
-
+console.log(' ************************* ');
+console.log(' Recipe-data : ' + recipeData.exports);
+console.log(' ************************* ');
 const NRP = require('node-redis-pubsub');
 const config = {
     port: 6379, // Port of your locally running Redis server
@@ -14,11 +16,11 @@ const pixabayApiKey = "3432196-710f5c9e1d0f75f6c0aa4a34a";
 const basePixabayUrl = `https://pixabay.com/api/?key=${pixabayApiKey}&safesearch=true&q=`;
 
 redisConnection.on('delete-user:*', (data, channel) => {
-    console.log('@Worker for Delete : ' + data.uuid);
+    console.log('@Worker for Delete : ' + data.id);
 
     var messageId = data.requestId;
 
-    recipeData.delete_user(data.uuid).then(function(result) {
+    recipeData.delete_user(data.id).then(function(result) {
         console.log('@ Worker delete results from data : ' + JSON.stringify(result));
         redisConnection.emit(`user-deleted:${messageId}`, result);
     });
@@ -84,42 +86,92 @@ redisConnection.on('update-user:*', (data, channel) => {
     //redisConnection.emit(`user-updated:${messageId}`, user_update);
 });
 
+// Recipe Worker functions
+redisConnection.on('update-recipe:*', (data, channel) => {
+    console.log('update-recipe message received by worker function.');
+    var messageId = data.requestId;
+    var userid = data.userid;
+    console.log('Message Id @ Worker : ' + messageId);
+
+    console.log('Recipe to be updated : ' + JSON.stringify(data.recipe));
+    recipeData.update_recipe(data.recipe, userid).then(function(result) {
+        console.log(" *************Update Result from data : " +
+            JSON.stringify(result));
+        console.log('Publishing recipe-updated message with id: ' + messageId + " and data : " + result);
+        redisConnection.emit(`recipe-updated:${messageId}`, result);
+        //redisConnection.emit(`users-updated:${messageId}`, result);
+    }, function(error) {
+        console.log("Error while updating recipes : " + error);
+        return false;
+    });
+});
+
 redisConnection.on('create-recipe:*', (data, channel) => {
-    console.log('create-recipe message received by worker function.');
+    console.log('@ worker Recipe recived  : ', data.recipe);
+    var messageId = data.requestId;
+    recipeData.addRecipe(data.recipe).then(function(result) {
+            console.log('Recipe creation Result to worker from data module' + JSON.stringify(result));
+            redisConnection.emit(`recipe-created:${messageId}`, result);
+        },
+        function(_error) {
+            console.log(error);
+            var result = { status: 'failure', error: _error };
+            redisConnection.emit(`recipe-created:${messageId}`, result);
+        });
+});
+
+// redisConnection.on('create-recipe:*', (data, channel) => {
+//     console.log('create-recipe message received by worker function.');
+//     var messageId = data.requestId;
+
+//     var fullyComposeRecipe = recipeData
+//         .addRecipe(data.recipe)
+//         .then((newRecipe) => {
+//             console.log('New Recipe : ' + newRecipe);
+//             return fetch(`${basePixabayUrl}${newRecipe.title}`).then((res) => {
+//                 return res.json();
+//             }).then((response) => {
+//                 return response
+//                     .hits
+//                     .map(x => x.previewURL)
+//                     .slice(0, 5);
+//             }).then((hits) => {
+//                 return recipeData
+//                     .addImagesToRecipe(newRecipe._id, hits)
+//                     .then((recipeWithUrls) => {
+//                         return recipeData
+//                             .findRecipesWithIngredients(recipeWithUrls.ingredients.map(x => x.systemTitle))
+//                             .then(recipeList => {
+
+//                                 var recipeListExceptCurrent = recipeList.filter(x => x._id !== newRecipe._id);
+
+//                                 console.log(recipeListExceptCurrent);
+//                                 // Perform logic here Go through entire recipe list Calculate the percentage
+//                                 // matched for each. Compose an array of data calls to setup the percentage
+//                                 // matched Add all, then resolve to recipeWithUrls
+//                                 return recipeWithUrls;
+//                             });
+//                     })
+//             }).then((recipeWithUrls) => {
+//                 console.log('About to complete worker function');
+//                 redisConnection.emit(`recipe-created:${messageId}`, recipeWithUrls);
+//             }).catch(error => {
+//                 console.log(error);
+//                 // we will submit errors back to the frontend
+//             });
+//         });
+// });
+
+
+redisConnection.on('delete-recipe:*', (data, channel) => {
+    console.log('@Worker for Delete : ' + data.id);
+
     var messageId = data.requestId;
 
-    var fullyComposeRecipe = recipeData
-        .addRecipe(data.recipe)
-        .then((newRecipe) => {
-            return fetch(`${basePixabayUrl}${newRecipe.title}`).then((res) => {
-                return res.json();
-            }).then((response) => {
-                return response
-                    .hits
-                    .map(x => x.previewURL)
-                    .slice(0, 5);
-            }).then((hits) => {
-                return recipeData
-                    .addImagesToRecipe(newRecipe._id, hits)
-                    .then((recipeWithUrls) => {
-                        return recipeData
-                            .findRecipesWithIngredients(recipeWithUrls.ingredients.map(x => x.systemTitle))
-                            .then(recipeList => {
-
-                                var recipeListExceptCurrent = recipeList.filter(x => x._id !== newRecipe._id);
-
-                                console.log(recipeListExceptCurrent);
-                                // Perform logic here Go through entire recipe list Calculate the percentage
-                                // matched for each. Compose an array of data calls to setup the percentage
-                                // matched Add all, then resolve to recipeWithUrls
-                                return recipeWithUrls;
-                            });
-                    })
-            }).then((recipeWithUrls) => {
-                redisConnection.emit(`recipe-created:${messageId}`, recipeWithUrls);
-            }).catch(error => {
-                console.log(error);
-                // we will submit errors back to the frontend
-            });
-        });
+    recipeData.delete_recipe(data.id, data.userid).then(function(result) {
+        var dat = {};
+        dat = result == undefined ? {} : result;
+        console.log('@ Worker delete results from data : ' + JSON.stringify(dat));
+        redisConnection.emit(`recipe-deleted:${messageId}`, result);
+    });
 });

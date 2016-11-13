@@ -7,150 +7,17 @@ const jwt = require("jsonwebtoken");
 const redis = require('redis');
 
 // create a new redis client and connect to our local redis instance
-const redis_client = redis.createClient();
+const redis_client = redis.createClient(6379, "localhost");
 
 
 //router.use(middlewareCheck);
 
-
-// POST : /users/session : authenticate user
-router.post("/session", (req, res) => {
-
-    var username = req.body.username;
-    var password = req.body.password;
-
-    if (username == "" || username == undefined || password == "" || password == undefined) {
-        return res.json({
-            status: 'failure',
-            message: 'username or password was not provided in the body section',
-            detailed: 'Syntax : { username : "your value", password : "your value"}'
-        });
-    } else {
-        try {
-            //console.log('trying to authenticate');
-            recipeData.authenticate(username, password).then(
-                function(result) {
-                    //console.log('Authentication result @ session  route : ' + JSON.stringify(result));
-                    if (result.status == 'success') {
-                        var token_key = req.app.get('superSecret');
-                        //console.log('token key : ' + token_key);
-                        var token = '';
-
-                        token = jwt.sign(result, token_key, {
-                            expiresIn: 60 //expires in 5 min
-                        });
-                        //console.log('token assigned : ' + token);
-                        res.json({
-                            success: true,
-                            message: 'authentication successful using token to communicate in future.',
-                            token: token
-                        });
-                    } else {
-                        //console.log('Rejecting Authentication with a problem');
-                        return res.json(result);
-                    }
-                },
-                function(err) {
-                    return res.json({ error: err });
-                });
-
-        } catch (e) {
-            console.log('error : ' + e);
-            return { error: e };
-        }
-    }
-
-
-});
-
-router.delete("/", (req, res) => {
-
-    var token = req.headers['auth-token'];
-
-    if (!token) {
-        return res.json({
-            status: 'failed',
-            message: 'Auth-Toeken as missing. please Auth-Token in header. for Auth-Token you need to authenticate.'
-        });
-    } else {
-        var _uuid = ''; //validate_user(req.app.get('superSecret'), token);
-        jwt.verify(token, req.app.get('superSecret'), function(err, decoded) {
-            console.log('@ delete user with decoded token : ' + decoded);
-            if (!decoded) {
-                return res.json({ status: 'failure', message: 'invalid token' });
-            }
-            if (err) {
-                uuid = undefined;
-            } else {
-
-                var decoded_json = JSON.parse(JSON.stringify(decoded));
-                console.log('Decoded Json from Token : ' + decoded_json);
-                _uuid = decoded_json.id;
-                if (!_uuid) {
-                    res.json({ status: 'failure', message: 'token invalid' });
-                } else {
-                    var redisConnection = req
-                        .app
-                        .get("redis");
-
-                    var messageId = uuid.v4();
-                    var killswitchTimeoutId = undefined;
-
-                    redisConnection.on(`user-deleted:${messageId}`, (delete_status, channel) => {
-                        console.log('User Deletion Status : ' + JSON.stringify(delete_status) + ' for user : ' + uuid);
-
-                        if (delete_status.status == 'success') {
-                            redis_client.get(uuid, function(error, result) {
-                                if (result) {
-                                    console.log('@Cache for user being deleted : ' + result + ' and uuid :' + uuid);
-                                    redis_client.setex(uuid, 1, '');
-                                }
-                            });
-                        }
-                        res.json(delete_status);
-                        redisConnection.off(`user-deleted:${messageId}`);
-                        redisConnection.off(`user-deleted-failed:${messageId}`);
-
-                        clearTimeout(killswitchTimeoutId);
-                    });
-
-                    redisConnection.on(`user-deleted-failed:${messageId}`, (error, channel) => {
-                        res
-                            .status(500)
-                            .json(error);
-
-                        redisConnection.off(`user-deleted:${messageId}`);
-                        redisConnection.off(`user-deleted-failed:${messageId}`);
-
-                        clearTimeout(killswitchTimeoutId);
-                    });
-
-                    killswitchTimeoutId = setTimeout(() => {
-                        redisConnection.off(`user-deleted:${messageId}`);
-                        redisConnection.off(`user-deleted-failed:${messageId}`);
-                        res
-                            .status(500)
-                            .json({ error: "User deletion Operation : Timeout error" })
-                    }, 5000);
-
-                    redisConnection.emit(`delete-user:${messageId}`, {
-                        //console.log('Emiting message for creating recipe.');
-                        requestId: messageId,
-                        uuid: _uuid
-                    });
-
-                }
-            }
-        });
-    }
-});
-
 // PUT : /users : update user
 router.put("/", (req, res) => {
-    //console.log('updating user');
+    console.log('updating user');
 
     var token = req.headers['auth-token'];
-
+    console.log('Toekn : ' + token);
     if (!token) {
         return res.json({
             status: 'failed',
@@ -159,11 +26,15 @@ router.put("/", (req, res) => {
     }
     var _uuid = ''; //validate_user(req.app.get('superSecret'), token);
     jwt.verify(token, req.app.get('superSecret'), function(err, decoded) {
+        console.log('Decoded Token : ' + decoded);
+        console.log('Decoded err : ' + err);
         if (err) {
             uuid = undefined;
+            return res.json({ status: 'failure', message: err });
         } else {
             var decoded_json = JSON.parse(JSON.stringify(decoded));
             _uuid = decoded_json.id;
+            console.log('Decoded Token : ' + decoded);
             if (!_uuid) {
                 res.json({ status: 'failure', message: 'token invalid' });
             } else {
@@ -180,7 +51,7 @@ router.put("/", (req, res) => {
                 var killswitchTimeoutId = undefined;
 
                 redisConnection.on(`user-updated:${messageId}`, (update_result, channel) => {
-                    //console.log('Updating cache for user with id : ' + update_result.id);
+                    console.log('Updating cache for user with id : ' + update_result.id);
                     if (update_result.status == 'success') {
                         redis_client.get(update_result.id, function(error, result) {
                             if (result) {
@@ -231,6 +102,140 @@ router.put("/", (req, res) => {
 
 });
 
+
+// POST : /users/session : authenticate user
+router.post("/session", (req, res) => {
+
+    var username = req.body.username;
+    var password = req.body.password;
+
+    if (username == "" || username == undefined || password == "" || password == undefined) {
+        return res.json({
+            status: 'failure',
+            message: 'username or password was not provided in the body section',
+            detailed: 'Syntax : { username : "your value", password : "your value"}'
+        });
+    } else {
+        try {
+            //console.log('trying to authenticate');
+            recipeData.authenticate(username, password).then(
+                function(result) {
+                    //console.log('Authentication result @ session  route : ' + JSON.stringify(result));
+                    if (result.status == 'success') {
+                        var token_key = req.app.get('superSecret');
+                        //console.log('token key : ' + token_key);
+                        var token = '';
+
+                        token = jwt.sign(result, token_key, {
+                            expiresIn: 30 * 60 //expires in 5 min
+                        });
+                        //console.log('token assigned : ' + token);
+                        res.json({
+                            success: true,
+                            message: 'authentication successful using token to communicate in future.',
+                            token: token,
+                            note: 'keep in mind this token is valid till next 30 minutes.'
+                        });
+                    } else {
+                        //console.log('Rejecting Authentication with a problem');
+                        return res.json(result);
+                    }
+                },
+                function(err) {
+                    return res.json({ error: err });
+                });
+
+        } catch (e) {
+            console.log('error : ' + e);
+            return { error: e };
+        }
+    }
+
+
+});
+
+router.delete("/", (req, res) => {
+
+    var token = req.headers['auth-token'];
+
+    if (!token) {
+        return res.json({
+            status: 'failed',
+            message: 'Auth-Toeken as missing. please Auth-Token in header. for Auth-Token you need to authenticate.'
+        });
+    } else {
+        var _uuid = ''; //validate_user(req.app.get('superSecret'), token);
+        jwt.verify(token, req.app.get('superSecret'), function(err, decoded) {
+            console.log('@ delete user with decoded token : ' + decoded);
+            if (err) {
+                return res.json({ status: 'failure', message: err });
+            } else {
+
+                var decoded_json = JSON.parse(JSON.stringify(decoded));
+                console.log('Decoded Json from Token : ' + decoded_json);
+                _uuid = decoded_json.id;
+                if (!_uuid) {
+                    res.json({ status: 'failure', message: 'token invalid' });
+                } else {
+                    var redisConnection = req
+                        .app
+                        .get("redis");
+
+                    var messageId = uuid.v4();
+                    var killswitchTimeoutId = undefined;
+
+                    redisConnection.on(`user-deleted:${messageId}`, (delete_status, channel) => {
+                        //console.log('User Deletion Status : ' + JSON.stringify(delete_status) + ' for user : ' + uuid);
+
+                        if (delete_status.status == 'success') {
+                            redis_client.get(uuid, function(error, result) {
+                                console.log('@Cache result : ' + result);
+                                console.log('@Cache error : ' + error);
+                                if (result) {
+                                    console.log('@Cache for user being deleted : ' + result + ' and uuid :' + uuid);
+                                    redis_client.setex(uuid, 1, '');
+                                }
+                            });
+                        }
+                        res.json(delete_status);
+                        redisConnection.off(`user-deleted:${messageId}`);
+                        redisConnection.off(`user-deleted-failed:${messageId}`);
+
+                        clearTimeout(killswitchTimeoutId);
+                    });
+
+                    redisConnection.on(`user-deleted-failed:${messageId}`, (error, channel) => {
+                        res
+                            .status(500)
+                            .json(error);
+
+                        redisConnection.off(`user-deleted:${messageId}`);
+                        redisConnection.off(`user-deleted-failed:${messageId}`);
+
+                        clearTimeout(killswitchTimeoutId);
+                    });
+
+                    killswitchTimeoutId = setTimeout(() => {
+                        redisConnection.off(`user-deleted:${messageId}`);
+                        redisConnection.off(`user-deleted-failed:${messageId}`);
+                        res
+                            .status(500)
+                            .json({ error: "User deletion Operation : Timeout error" })
+                    }, 5000);
+
+                    redisConnection.emit(`delete-user:${messageId}`, {
+                        //console.log('Emiting message for creating recipe.');
+                        requestId: messageId,
+                        uuid: _uuid
+                    });
+
+                }
+            }
+        });
+    }
+});
+
+
 // GET : /users : get individual user
 router.get("/:id", (req, res) => {
     var user_id = req.params.id;
@@ -259,6 +264,9 @@ router.get("/", (req, res) => {
         if (result) {
             console.log('Getting all users from cache');
             var users = JSON.parse(result);
+            users.forEach(function(element) {
+                element.password = "********";
+            }, this);
             console.log('Users : ' + result);
             return res.json(users);
         } else {
@@ -372,6 +380,7 @@ router.post("/", (req, res) => {
 
 });
 
+// --------------  Recipe Routes  ----------------------------
 
 
 module.exports = router;

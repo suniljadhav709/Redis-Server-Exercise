@@ -10,6 +10,7 @@ var exports = module.exports = {};
 
 MongoClient.connect(fullMongoUrl)
     .then(function(db) {
+        console.log('Ok trying to export methods.......!');
         var recipeCollection = db.collection("recipe");
         var userCollection = db.collection("user");
 
@@ -29,6 +30,8 @@ MongoClient.connect(fullMongoUrl)
                 }
             );
         }
+
+
 
         exports.update_User = function(user_new) {
 
@@ -72,6 +75,7 @@ MongoClient.connect(fullMongoUrl)
                                 console.log('***** FINAL Update Result : ' + JSON.stringify(user));
                                 var _user = user[0];
                                 _user.status = 'success';
+                                _user.password = "********";
                                 console.log('***** FINAL Update Result : ' + JSON.stringify(_user));
                                 return _user;
                             });
@@ -105,6 +109,7 @@ MongoClient.connect(fullMongoUrl)
 
                     if ((element._id.toString().toLowerCase() == uuid.toString().toLowerCase())) {
                         user = element;
+                        user.password = "*****";
                     }
                 }, this);
                 //console.log('Search result for user : ' + JSON.stringify(user));
@@ -123,6 +128,7 @@ MongoClient.connect(fullMongoUrl)
                 function(users) {
                     if (users.length > 0) {
                         var user = users[0];
+                        user.password = "******";
                         var result = {
                             id: user.id,
                             status: 'success'
@@ -148,6 +154,7 @@ MongoClient.connect(fullMongoUrl)
             return userCollection.find({ id: uuid }).toArray().then(function(users) {
                 if (users.length > 0) {
                     var user = users[0];
+                    user.password = "********";
                     return user;
                 } else {
                     return { 'Search Result': 'no record with this id' };
@@ -160,6 +167,9 @@ MongoClient.connect(fullMongoUrl)
 
         exports.getAllUsers = function() {
             return userCollection.find().toArray().then((users) => {
+                users.forEach(function(user) {
+                    user.password = "*******";
+                }, this);
                 return users;
             });
         };
@@ -177,6 +187,7 @@ MongoClient.connect(fullMongoUrl)
                                 var new_user = added_user[0];
                                 //return getUser(new_user.id);
                                 new_user.status = "success";
+                                new_user.password = "**********";
                                 return new_user;
                             });
                         },
@@ -199,26 +210,134 @@ MongoClient.connect(fullMongoUrl)
                 return recipes;
             });
         };
+
+        exports.getRecipe = function(_id) {
+            console.log('Result for query findng by id : ' + _id);
+            return recipeCollection.find().toArray().then((recipes) => {
+                var myrecipe = {};
+                var isFound = false;
+                recipes.forEach(function(recipe) {
+                    if (recipe.id == _id) {
+                        myrecipe = recipe;
+                        isFound = true;
+                    }
+                }, this);
+                //return recipes.find().toArray();
+                console.log('Result for query findng by id : ' + JSON.stringify(myrecipe));
+                if (isFound) {
+                    return { status: 'success', result: myrecipe };
+                } else {
+                    return { status: 'failure', result: 'There was no record with this id' };
+                }
+            });
+        };
+
+        exports.update_recipe = function(recipe, userid) {
+            console.log('@Data : Recipe : ' + JSON.stringify(recipe));
+            if (!recipe.id || !recipe.title) {
+
+                return { status: 'failure', message: 'Id and title is mandatory.' };
+            } else {
+                return recipeCollection.find({ id: recipe.id }).toArray().then(function(recipes) {
+                    if (recipes.length > 0 && recipes[0].userid == userid) {
+                        recipe.userid = userid;
+                        return recipeCollection.updateOne({ id: recipe.id }, recipe).then(function(_result) {
+                            console.log('@Data Recipe Updated : ' + JSON.stringify(recipe));
+                            return { status: 'success', result: recipe };
+                        }, function(err) {
+                            console.log('@Data Recipe Updated failed.');
+                            return { status: 'failure', message: 'There was no record with this id' };
+                        });
+                    } else {
+                        return { status: 'failure', message: 'Only owner can update the recipe' };
+                    }
+                }, function(err) {
+                    return { status: 'failure', error: err };
+                });
+            }
+
+        };
+
+        exports.delete_recipe = function(_id, puserid) {
+            var return_result = {
+                id: _id,
+                userid: puserid
+            };
+            console.log('ID : ' + _id);
+            if (!_id) {
+                return_result.status = 'failure';
+                return_result.message = 'Id is mandatory';
+                return return_result;
+            } else {
+                var ObjectId_str = "";
+                return recipeCollection.find({ id: _id }).toArray().then(function(param) {
+                        if (param.length > 0) {
+                            if (param[0].userid == puserid) {
+                                recipeCollection.remove({ id: _id }, 1).then(function(_result) {
+                                    // return {
+                                    //     status: 'success',
+                                    //     result: _result,
+                                    //     id: _id,
+                                    //     userid: puserid
+                                    // };
+                                    return_result.status = 'success';
+                                    return_result.result = _result;
+                                    return return_result;
+                                }, function(err) {
+                                    return_result.status = 'failure';
+                                    return_result.error = err;
+                                    return return_result;
+
+                                });
+                            }
+                        } else {
+                            return_result.status = 'failure';
+                            return_result.result = 'no record found'
+                            return return_result;
+                        }
+                    },
+                    function(err) {
+                        return { status: 'failure', error: err };
+                    }
+                );
+            }
+
+        };
+
         exports.getRecipe = function(id) {
             return recipeCollection.find({ _id: id }).limit(1).toArray().then((recipes) => {
                 return recipes.length > 0 ? recipes[0] : null;
             })
         };
+
+
         exports.addRecipe = function(recipe) {
-            return recipeCollection.find().toArray().then((recipes) => {
-                var newRecipe = JSON.parse(JSON.stringify(recipe));
-
-                newRecipe.ingredients.forEach(ingredient => {
-                    ingredient.systemTitle = ingredient.displayTitle.toString();
+            console.log('@Data : Recipe : ' + recipe);
+            return recipeCollection.insertOne(recipe).then(function(_result) {
+                return recipeCollection.find({ id: recipe.id }).toArray().then(function(recipe_new) {
+                    return { status: 'success', result: recipe_new[0] };
+                }, function(err) {
+                    return { status: 'failure', message: err };
                 });
-
-                newRecipe.relatedIngredients = [];
-                newRecipe.imageUrls = [];
-
-                return recipes.insertOne(recipe)
-            }).then((recipe) => {
-                return this.getRecipe(recipe.insertedId);
+            }, function(err) {
+                return { status: 'failure', message: err };
             });
+            // return recipeCollection.find().toArray().then((recipes) => {
+            //     var newRecipe = JSON.parse(JSON.stringify(recipe));
+
+            //     newRecipe.ingredients.forEach(ingredient => {
+            //         ingredient.systemTitle = ingredient.displayTitle.toString();
+            //     });
+
+            //     newRecipe.relatedIngredients = [];
+            //     newRecipe.imageUrls = [];
+            //     console.log('2');
+            //     return recipes.insertOne(recipe)
+            // }).then((recipe) => {
+            //     console.log('Adding recipe completed');
+            //     return this.getRecipe(recipe.insertedId);
+            // });
+
         };
 
         exports.createRecipeRelationship = function(firstRecipe, firstMatchAmount, secondRecipe, secondMatchAmount) {
@@ -266,6 +385,7 @@ MongoClient.connect(fullMongoUrl)
                 return recipes;
             });
         };
+
         exports.addImagesToRecipe = function(recipeId, imageUrlArray) {
             return recipeCollection.updateOne({ _id: recipeId }, {
                 $addToSet: { imageUrls: { $each: imageUrlArray } }
@@ -273,6 +393,8 @@ MongoClient.connect(fullMongoUrl)
                 return this.getRecipe(recipeId);
             });
         };
+    }, function(err) {
+        console.log("connection error : " + err);
     });
 
 //module.exports = exportedMethods;

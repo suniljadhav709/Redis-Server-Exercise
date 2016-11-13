@@ -12,9 +12,7 @@ const constructorMethod = (app) => {
     //recipeRoutes.use(middlewareCheck(req, res, next));
     app.use("/recipes", recipeRoutes);
     app.use("/users", userRoutes);
-    app.get("/", (req, res) => {
-        res.render("home", {});
-    });
+
 
 
     // app.use("/users", (req, res) => {
@@ -23,9 +21,7 @@ const constructorMethod = (app) => {
     //     res.redirect("/");
     // });
 
-    app.use("*", (req, res) => {
-        res.redirect("/");
-    });
+
 
 
 
